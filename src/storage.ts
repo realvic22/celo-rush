@@ -23,6 +23,12 @@ function safe<T>(fn: () => T, fallback: T): T {
     }
 }
 
+function readInt(raw: string | null, fallback: number): number {
+    if (raw === null) return fallback;
+    const parsed = Number(raw);
+    return Number.isInteger(parsed) ? parsed : fallback;
+}
+
 export const storage = {
     scores(): ScoreEntry[] {
         const raw = safe(() => localStorage.getItem(KEY), null);
@@ -56,14 +62,14 @@ export const storage = {
     },
     musicMode(): number {
         const v = safe(() => localStorage.getItem(MUSIC), null);
-        return v === null ? -1 : Number(v);
+        return readInt(v, -1);
     },
     setMusicMode(i: number): void {
         safe(() => localStorage.setItem(MUSIC, String(i)), undefined);
     },
     equippedSkin(): number | null {
         const raw = safe(() => localStorage.getItem(SKIN), null);
-        const id = raw ? Number(raw) : 0;
+        const id = readInt(raw, 0);
         return Number.isFinite(id) && id > 0 ? id : null;
     },
     setEquippedSkin(id: number | null): void {
@@ -71,7 +77,7 @@ export const storage = {
     },
     equippedTrail(): number | null {
         const raw = safe(() => localStorage.getItem(TRAIL), null);
-        const id = raw ? Number(raw) : 0;
+        const id = readInt(raw, 0);
         return Number.isFinite(id) && id > 0 ? id : null;
     },
     setEquippedTrail(id: number | null): void {
