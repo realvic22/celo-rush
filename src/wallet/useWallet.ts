@@ -1,5 +1,5 @@
 import { useAccount, useConnect, useDisconnect, useChainId, useSwitchChain } from 'wagmi';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { isMiniPay, getChainId } from './provider';
 
 export function useWallet() {
@@ -9,6 +9,7 @@ export function useWallet() {
     const chainId = useChainId();
     const { switchChain } = useSwitchChain();
     const [inMiniPay, setInMiniPay] = useState(false);
+    const autoConnectAttempted = useRef(false);
 
     useEffect(() => {
         setInMiniPay(isMiniPay());
@@ -22,7 +23,7 @@ export function useWallet() {
                 await connect({ connector: injected });
                 const targetChainId = getChainId();
                 if (chainId !== targetChainId) {
-                    switchChain({ chainId: targetChainId });
+                    await switchChain({ chainId: targetChainId });
                 }
             } catch {
                 // silent fail — user is in MiniPay, connection is implicit
@@ -31,10 +32,11 @@ export function useWallet() {
     }, [connect, connectors, isConnected, isConnecting, chainId, switchChain]);
 
     useEffect(() => {
-        if (isMiniPay()) {
+        if (inMiniPay && !autoConnectAttempted.current) {
+            autoConnectAttempted.current = true;
             void autoConnect();
         }
-    }, [autoConnect]);
+    }, [autoConnect, inMiniPay]);
 
     const shortAddress = address
         ? `${address.slice(0, 6)}...${address.slice(-4)}`
