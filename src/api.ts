@@ -5,6 +5,14 @@ const BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/
 
 export const apiEnabled = BASE.length > 0;
 
+async function parseJson<T>(response: Response): Promise<T | null> {
+    return (await response.json().catch(() => null)) as T | null;
+}
+
+function normalizeWallet(wallet: string): string {
+    return wallet.trim().toLowerCase();
+}
+
 export interface LbEntry {
     position: number;
     wallet?: string;
@@ -56,10 +64,11 @@ export async function startRun(
         const r = await fetch(`${BASE}/api/run/start`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ wallet, gameMode, runId: runId || undefined }),
+            body: JSON.stringify({ wallet: normalizeWallet(wallet), gameMode, runId: runId || undefined }),
         });
         if (!r.ok) throw new Error('start failed');
-        const d = (await r.json()) as { token: string };
+        const d = await parseJson<{ token: string }>(r);
+        if (!d?.token) throw new Error('start failed');
         return { token: d.token };
     } catch (error) {
         throw (error instanceof Error ? error : new Error('ranked run start failed'));
@@ -83,7 +92,7 @@ export async function submitRun(p: SubmitPayload): Promise<SubmitResult | null> 
                 wallet: p.wallet || undefined,
             }),
         });
-        const d = await r.json().catch(() => null) as { rank?: string; position?: number | null; hidden?: boolean; error?: string } | null;
+        const d = await parseJson<{ rank?: string; position?: number | null; hidden?: boolean; error?: string }>(r);
         if (!r.ok) throw new Error(d?.error || `submit_failed_${r.status}`);
         return d as SubmitResult;
     } catch (e) {
@@ -95,9 +104,9 @@ export async function submitRun(p: SubmitPayload): Promise<SubmitResult | null> 
 export async function getPlayerProfile(wallet: string): Promise<PlayerProfile | null> {
     if (!BASE || !wallet) return null;
     try {
-        const r = await fetch(`${BASE}/api/players/${wallet.toLowerCase()}`);
+        const r = await fetch(`${BASE}/api/players/${normalizeWallet(wallet)}`);
         if (!r.ok) return null;
-        return (await r.json()) as PlayerProfile;
+        return await parseJson<PlayerProfile>(r);
     } catch {
         return null;
     }
@@ -114,11 +123,11 @@ export async function registerPlayer(wallet: string): Promise<boolean> {
         const r = await fetch(`${BASE}/api/players/register`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ wallet: wallet.toLowerCase() }),
+            body: JSON.stringify({ wallet: normalizeWallet(wallet) }),
         });
         if (!r.ok) return false;
-        const d = (await r.json()) as { registered: boolean };
-        return d.registered === true;
+        const d = await parseJson<{ registered: boolean }>(r);
+        return d?.registered === true;
     } catch {
         return false;
     }
@@ -126,14 +135,15 @@ export async function registerPlayer(wallet: string): Promise<boolean> {
 
 export async function setPlayerName(wallet: string, name: string): Promise<PlayerProfile> {
     if (!BASE || !wallet) throw new Error('api_disabled');
-    const r = await fetch(`${BASE}/api/players/${wallet.toLowerCase()}/name`, {
+    const r = await fetch(`${BASE}/api/players/${normalizeWallet(wallet)}/name`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name }),
     });
-    const d = await r.json().catch(() => null) as (PlayerProfile & { error?: string }) | null;
+    const d = await parseJson<PlayerProfile & { error?: string }>(r);
     if (!r.ok) throw new Error(d?.error || `name_failed_${r.status}`);
-    return d as PlayerProfile;
+    if (!d) throw new Error(`name_failed_${r.status}`);
+    return d;
 }
 
 export interface RewardVoucher {
@@ -153,10 +163,12 @@ export async function claimRunReward(runId: string, score: number, wallet: strin
         body: JSON.stringify({ runId, score, wallet }),
     });
     if (!r.ok) {
-        const d = await r.json().catch(() => null) as { error?: string } | null;
+        const d = await parseJson<{ error?: string }>(r);
         throw new Error(d?.error || `claim_failed_${r.status}`);
     }
-    return (await r.json()) as RewardVoucher;
+    const d = await parseJson<RewardVoucher>(r);
+    if (!d) throw new Error(`claim_failed_${r.status}`);
+    return d;
 }
 
 export interface ShopItem {
@@ -186,8 +198,8 @@ export async function getLeaderboard(
         if (squad) q.set('squad', squad);
         const r = await fetch(`${BASE}/api/leaderboard?${q.toString()}`);
         if (!r.ok) return null;
-        const d = (await r.json()) as { entries: LbEntry[] };
-        return d.entries;
+        const d = await parseJson<{ entries: LbEntry[] }>(r);
+        return d?.entries || [];
     } catch {
         return null;
     }
@@ -210,10 +222,10 @@ export interface WeeklyHistoryEntry {
 export async function getWeeklyHistory(wallet: string): Promise<WeeklyHistoryEntry[]> {
     if (!BASE || !wallet) return [];
     try {
-        const r = await fetch(`${BASE}/api/weekly/history/${wallet.toLowerCase()}`);
+        const r = await fetch(`${BASE}/api/weekly/history/${normalizeWallet(wallet)}`);
         if (!r.ok) return [];
-        const d = await r.json() as { history?: WeeklyHistoryEntry[] };
-        return d.history || [];
+        const d = await parseJson<{ history?: WeeklyHistoryEntry[] }>(r);
+        return d?.history || [];
     } catch {
         return [];
     }
@@ -237,7 +249,7 @@ export async function requestWeeklyReward(wallet: string, week: number): Promise
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ wallet, week }),
     });
-    const d = await r.json().catch(() => null) as (WeeklyRequestVoucher & { error?: string }) | null;
+    const d = await parseJson<WeeklyRequestVoucher & { error?: string }>(r);
     if (!r.ok || !d) throw new Error(d?.error || `weekly_request_failed_${r.status}`);
     return d;
 }
@@ -250,7 +262,7 @@ export async function syncWeeklyRequest(wallet: string, week: number, txHash: st
         body: JSON.stringify({ wallet, week, txHash }),
     });
     if (!r.ok) {
-        const d = await r.json().catch(() => null) as { error?: string } | null;
+        const d = await parseJson<{ error?: string }>(r);
         throw new Error(d?.error || `weekly_sync_failed_${r.status}`);
     }
 }
@@ -274,8 +286,8 @@ export async function getWeeklyRequests(): Promise<WeeklyRequestEntry[]> {
     try {
         const r = await fetch(`${BASE}/api/weekly/requests`);
         if (!r.ok) return [];
-        const d = await r.json() as { requests?: WeeklyRequestEntry[] };
-        return d.requests || [];
+        const d = await parseJson<{ requests?: WeeklyRequestEntry[] }>(r);
+        return d?.requests || [];
     } catch {
         return [];
     }
